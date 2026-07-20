@@ -34,6 +34,7 @@ const io = new Server(httpServer, {
 // }
 const rooms = {};
 const ffmpegProcesses = {};
+const roomHeaderChunks = {};
 
 // Port configuration
 const PORT = process.env.PORT || 5000;
@@ -101,9 +102,15 @@ io.on('connection', (socket) => {
       io.to(eventCode).emit('cameras-updated', rooms[eventCode].cameras);
       console.log(`Camera added to room ${eventCode}: ${socket.id}`);
     } else {
-      // Send current state to newly joined host / admin
+      // Send current state to newly joined host / admin / viewer
       socket.emit('room-state', rooms[eventCode]);
-      console.log(`Admin/Host joined room ${eventCode} with role ${role}`);
+      console.log(`User joined room ${eventCode} with role ${role}`);
+      
+      // If viewer joins and there is a cached stream header chunk, relay it immediately
+      if (role === 'viewer' && roomHeaderChunks[eventCode]) {
+        console.log(`Sending cached stream header chunk to viewer ${socket.id}`);
+        socket.emit('viewer-stream-chunk', roomHeaderChunks[eventCode]);
+      }
     }
   });
 
@@ -253,17 +260,30 @@ io.on('connection', (socket) => {
 
   socket.on('stream-chunk', (chunk) => {
     const { eventCode } = socket;
-    if (eventCode && ffmpegProcesses[eventCode]) {
-      try {
-        ffmpegProcesses[eventCode].stdin.write(chunk);
-      } catch (e) {
-        console.error(`Error writing stream chunk to FFmpeg stdin: ${e.message}`);
+    if (eventCode) {
+      // Cache the first chunk (WebM header) for late joining viewers
+      if (!roomHeaderChunks[eventCode]) {
+        console.log(`Caching WebM header chunk for room: ${eventCode} (size: ${chunk.length} bytes)`);
+        roomHeaderChunks[eventCode] = chunk;
+      }
+      
+      // Relay raw WebM chunks to any connected viewers in this room
+      socket.to(eventCode).emit('viewer-stream-chunk', chunk);
+
+      // Also push to FFmpeg RTMP if running
+      if (ffmpegProcesses[eventCode]) {
+        try {
+          ffmpegProcesses[eventCode].stdin.write(chunk);
+        } catch (e) {
+          console.error(`Error writing stream chunk to FFmpeg stdin: ${e.message}`);
+        }
       }
     }
   });
 
   socket.on('stop-rtmp-stream', () => {
     const { eventCode } = socket;
+    delete roomHeaderChunks[eventCode];
     if (eventCode && ffmpegProcesses[eventCode]) {
       console.log(`Stopping FFmpeg RTMP Push for room: ${eventCode}`);
       try {
