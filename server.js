@@ -46,11 +46,19 @@ app.get('/health', (req, res) => {
 io.on('connection', (socket) => {
   console.log(`Socket connected: ${socket.id}`);
 
+  const updateViewerCount = (code) => {
+    if (!code) return;
+    const roomClients = io.sockets.adapter.rooms.get(code);
+    const count = roomClients ? roomClients.size : 0;
+    io.to(code).emit('viewer-count-updated', count);
+  };
+
   // Event validation / login
   socket.on('join-room', ({ eventCode, role, details }) => {
     socket.join(eventCode);
     socket.eventCode = eventCode;
     socket.role = role;
+    updateViewerCount(eventCode);
 
     // Initialize room if not exists
     if (!rooms[eventCode]) {
@@ -312,6 +320,8 @@ io.on('connection', (socket) => {
           delete ffmpegProcesses[eventCode];
         }
       }
+      // Update viewer count on disconnect
+      updateViewerCount(eventCode);
     }
   });
 });
