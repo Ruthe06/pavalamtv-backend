@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import { spawn } from 'child_process';
 
 const app = express();
 app.use(cors());
@@ -32,6 +33,7 @@ const io = new Server(httpServer, {
 //   }
 // }
 const rooms = {};
+const ffmpegProcesses = {};
 
 // Port configuration
 const PORT = process.env.PORT || 5000;
@@ -186,7 +188,81 @@ io.on('connection', (socket) => {
       signal
     });
   });
+  // --- OBS Direct RTMP Streaming Integration ---
+  // Spawn FFmpeg to stream incoming browser canvas chunks to YouTube/Facebook RTMP targets
+  socket.on('start-rtmp-stream', ({ rtmpUrl }) => {
+    const { eventCode } = socket;
+    if (!eventCode) return;
 
+    // Clean any existing stream for this room
+    if (ffmpegProcesses[eventCode]) {
+      try {
+        ffmpegProcesses[eventCode].stdin.end();
+        ffmpegProcesses[eventCode].kill('SIGINT');
+      } catch (e) {}
+      delete ffmpegProcesses[eventCode];
+    }
+
+    console.log(`Starting FFmpeg RTMP Push for room: ${eventCode} -> ${rtmpUrl}`);
+
+    // Spawn FFmpeg process to decode WebM stdin stream and push FLV RTMP stream
+    const ffmpegArgs = [
+      '-i', '-',                // Read WebM chunk inputs from standard input (stdin)
+      '-c:v', 'libx264',        // H.264 video codec
+      '-preset', 'veryfast',    // Fast compression preset
+      '-tune', 'zerolatency',   // Zero latency tuning
+      '-b:v', '2500k',          // Video bitrate (2.5 Mbps)
+      '-maxrate', '2500k',      // Max video bitrate
+      '-bufsize', '5000k',      // Buffer size
+      '-pix_fmt', 'yuv420p',    // Standard color format for YouTube Live
+      '-g', '60',               // Keyframe interval
+      '-c:a', 'aac',            // AAC audio codec
+      '-b:a', '128k',           // Audio bitrate
+      '-ar', '44100',           // 44.1 kHz sample rate
+      '-f', 'flv',              // FLV format required for RTMP ingestion
+      rtmpUrl                   // Target RTMP output endpoint
+    ];
+
+    try {
+      const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+      ffmpegProcesses[eventCode] = ffmpegProcess;
+
+      ffmpegProcess.stderr.on('data', (data) => {
+        // Logging FFmpeg outputs for monitoring
+        console.log(`[FFmpeg-Room-${eventCode}]:`, data.toString().substring(0, 100));
+      });
+
+      ffmpegProcess.on('close', (code) => {
+        console.log(`FFmpeg stream process for room ${eventCode} closed with code ${code}`);
+        delete ffmpegProcesses[eventCode];
+      });
+    } catch (err) {
+      console.error(`Failed to spawn FFmpeg process: ${err.message}. Make sure ffmpeg is installed.`);
+    }
+  });
+
+  socket.on('stream-chunk', (chunk) => {
+    const { eventCode } = socket;
+    if (eventCode && ffmpegProcesses[eventCode]) {
+      try {
+        ffmpegProcesses[eventCode].stdin.write(chunk);
+      } catch (e) {
+        console.error(`Error writing stream chunk to FFmpeg stdin: ${e.message}`);
+      }
+    }
+  });
+
+  socket.on('stop-rtmp-stream', () => {
+    const { eventCode } = socket;
+    if (eventCode && ffmpegProcesses[eventCode]) {
+      console.log(`Stopping FFmpeg RTMP Push for room: ${eventCode}`);
+      try {
+        ffmpegProcesses[eventCode].stdin.end();
+        ffmpegProcesses[eventCode].kill('SIGINT');
+      } catch (e) {}
+      delete ffmpegProcesses[eventCode];
+    }
+  });
   // When a client leaves
   socket.on('disconnect', () => {
     const { eventCode, role } = socket;
@@ -196,6 +272,15 @@ io.on('connection', (socket) => {
         io.to(eventCode).emit('cameras-updated', rooms[eventCode].cameras);
         io.to(eventCode).emit('camera-disconnected', socket.id);
         console.log(`Camera disconnected and removed: ${socket.id}`);
+      }
+      if (role === 'host') {
+        if (ffmpegProcesses[eventCode]) {
+          try {
+            ffmpegProcesses[eventCode].stdin.end();
+            ffmpegProcesses[eventCode].kill('SIGINT');
+          } catch (e) {}
+          delete ffmpegProcesses[eventCode];
+        }
       }
     }
   });
