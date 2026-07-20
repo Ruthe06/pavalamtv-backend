@@ -59,6 +59,7 @@ io.on('connection', (socket) => {
         description: 'Multi-camera Web Broadcasting',
         status: 'idle',
         rtmpOutputs: { youtube: false, facebook: false, custom: '' },
+        youtubeId: '',
         recording: false,
         ticker: {
           text: '🔴 LIVE | ஸ்ரீ பவளம்மன் கோவில் திருவிழா | அனைவருக்கும் நேரலையில் இணைந்திருப்பதற்கு நன்றி',
@@ -140,6 +141,15 @@ io.on('connection', (socket) => {
     if (eventCode && rooms[eventCode]) {
       rooms[eventCode].rtmpOutputs = rtmpOutputs;
       io.to(eventCode).emit('rtmp-outputs-updated', rtmpOutputs);
+    }
+  });
+
+  // Sync YouTube live video ID
+  socket.on('update-youtube-id', (youtubeId) => {
+    const { eventCode } = socket;
+    if (eventCode && rooms[eventCode]) {
+      rooms[eventCode].youtubeId = youtubeId;
+      io.to(eventCode).emit('youtube-id-updated', youtubeId);
     }
   });
 
