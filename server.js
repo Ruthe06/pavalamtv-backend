@@ -289,6 +289,13 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('send-chat-msg', (msg) => {
+    const { eventCode } = socket;
+    if (eventCode) {
+      socket.to(eventCode).emit('receive-chat-msg', msg);
+    }
+  });
+
   socket.on('stop-rtmp-stream', () => {
     const { eventCode } = socket;
     delete roomHeaderChunks[eventCode];
