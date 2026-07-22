@@ -71,8 +71,8 @@ io.on('connection', (socket) => {
         youtubeId: '',
         recording: false,
         ticker: {
-          text: '🔴 LIVE | ஸ்ரீ பவளம்மன் கோவில் திருவிழா | அனைவருக்கும் நேரலையில் இணைந்திருப்பதற்கு நன்றி',
-          enabled: true,
+          text: '',
+          enabled: false,
           speed: 15,
           color: '#ffffff',
           bg: '#ef4444',
