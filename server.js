@@ -134,6 +134,33 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Host camera administration (Rename, Hide, Remove)
+  socket.on('rename-camera', ({ cameraId, newName }) => {
+    const { eventCode } = socket;
+    if (eventCode && rooms[eventCode]?.cameras[cameraId]) {
+      rooms[eventCode].cameras[cameraId].name = newName;
+      io.to(eventCode).emit('cameras-updated', rooms[eventCode].cameras);
+    }
+  });
+
+  socket.on('toggle-camera-visibility', ({ cameraId, hidden }) => {
+    const { eventCode } = socket;
+    if (eventCode && rooms[eventCode]?.cameras[cameraId]) {
+      rooms[eventCode].cameras[cameraId].hidden = hidden;
+      io.to(eventCode).emit('cameras-updated', rooms[eventCode].cameras);
+    }
+  });
+
+  socket.on('remove-camera', ({ cameraId }) => {
+    const { eventCode } = socket;
+    if (eventCode && rooms[eventCode]?.cameras[cameraId]) {
+      const targetSocket = io.sockets.sockets.get(cameraId);
+      if (targetSocket) {
+        targetSocket.disconnect();
+      }
+    }
+  });
+
   // Admin controls event status (start/stop/pause)
   socket.on('update-event-status', ({ status, title, description }) => {
     const { eventCode } = socket;
